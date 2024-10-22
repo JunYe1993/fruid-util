@@ -8,7 +8,7 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-__version__ = "v2024.41.0"
+__version__ = "v2024.43.0"
 
 # Set your platform name here
 PLATFORM_NAME = "PlatformName"
@@ -58,6 +58,12 @@ def is_empty_field(value):
     return any(re.search(keyword, value, re.IGNORECASE) for keyword in empty_keywords)
 
 
+def is_non_displayable_ascii(value):
+    if not isinstance(value, str):
+        return False
+    return any(ord(char) < 32 or ord(char) > 126 for char in value)
+
+
 # To identify if the field needs input data
 def is_dynamic_content(value):
     if not isinstance(value, str):
@@ -105,6 +111,7 @@ def create_release_note(folder_path, version, board_info):
 Version: {version}
 Date: {datetime.now().strftime('%Y/%m/%d')}
 Hardware Platform: {PLATFORM_NAME}
+
 Note:
   1. The utility and scripts for programming FRU on Linux OS (with Python 3.6+)
   2. The scripts of programming FRU for specific boards.
@@ -135,7 +142,7 @@ Changed/Added:
         f.write(content)
 
 
-def generate_fru_script_content(fru_fields, script_type):
+def generate_fru_script_content(fru_fields, script_type, board_pn):
     script_content = "#!/bin/sh\n\nUTIL=../fruid-util.py\nBIN=${1:-fru.bin}\n\n"
 
     assignments = []
@@ -154,6 +161,12 @@ def generate_fru_script_content(fru_fields, script_type):
 
         value = fru_fields.get(field)
         if not value or is_empty_field(value):
+            continue
+
+        if is_non_displayable_ascii(value):
+            print(
+                f"Warning: Non-displayable content found in '{field}' for {board_pn} ({script_type})"
+            )
             continue
 
         value = strip_field_content(value)
@@ -226,7 +239,7 @@ def generate_fru_scripts(excel_file):
         versions.append(get_version_from_fru_id(fru_fields))
 
         for stage in ["M1", "M3"]:
-            script_content = generate_fru_script_content(fru_fields, stage)
+            script_content = generate_fru_script_content(fru_fields, stage, board_pn)
 
             # Write the script to a file
             output_script = os.path.join(base_dir, stage, f"{board_pn}.sh")
