@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION="v2024.28.0"
+VERSION="v2024.43.0"
 
 declare -A chassis_info
 declare -A board_info
@@ -277,7 +277,7 @@ modify_field() {
             echo "Board Mfg Date updated to '$new_value'"
         else
             area_info[$field_name]="$new_value"
-            echo "Field $field_name updated to '$new_value'"
+            #echo "Field '$field_name' updated to '$new_value'"
         fi
     else
         echo "Unknown field: $field"
@@ -336,6 +336,11 @@ build_area() {
         if [ -n "${area_info[$field]}" ]; then
             encoded_value=$(ascii_to_hex "${area_info[$field]}")
             local length=$((${#encoded_value} / 2))
+            if [ $length -eq 1 ]; then
+                echo "Error: Field '$field' must have a length of at least 2 characters." >&2
+                return 1
+            fi
+
             if [ $length -gt 63 ]; then
                 echo "Warning: Field '$field' is too long and will be truncated." >&2
                 encoded_value="${encoded_value:0:126}"
@@ -363,6 +368,7 @@ build_area() {
     area_data+="$(calculate_checksum "$area_data")"
 
     echo "$area_data"
+    return 0
 }
 
 # Function to rebuild FRU binary
@@ -384,7 +390,9 @@ rebuild_fru_binary() {
         [ -z "${area_info[*]}" ] && continue
 
         common_header="$(printf '%s%02x%s' "${common_header:0:$((i*2))}" $((offset/8)) "${common_header:$((i*2+2))}")"
-        area_data=$(build_area "$area")
+        if ! area_data=$(build_area "$area"); then
+            return 1
+        fi
         new_data+="$area_data"
         offset=$((offset + ${#area_data} / 2))
     done
@@ -398,6 +406,7 @@ rebuild_fru_binary() {
     # Write the new data to the file
     printf '%b' "$(echo -n "$new_data" | sed 's/\(..\)/\\x\1/g')" > "$file"
     echo "Binary file rebuilt successfully"
+    return 0
 }
 
 show_help() {
@@ -507,7 +516,10 @@ if [ "$modify_mode" = true ]; then
         if [[ $create_file == true && -n "${board_info[*]}" ]]; then
             board_info["Mfg Date"]=$(date_to_raw_fru "$(date '+%Y-%m-%d %H:%M:%S')")
         fi
-        rebuild_fru_binary "$fru_file"
+        if ! rebuild_fru_binary "$fru_file"; then
+            echo "Failed to rebuild FRU binary due to errors."
+            exit 1
+        fi
         echo "FRU data has been updated and written to ${fru_file}."
         exit 0
     else

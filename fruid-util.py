@@ -7,8 +7,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 import logging
+import sys
 
-__version__ = "v2024.28.0"
+__version__ = "v2024.43.0"
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -194,6 +195,11 @@ class FRU:
                 encoded_value = (
                     value.encode("ascii") if isinstance(value, str) else bytes(value)
                 )
+                if len(encoded_value) == 1:
+                    raise ValueError(
+                        f"Field '{field}' must have a length of at least 2 characters."
+                    )
+
                 if len(encoded_value) > 63:
                     logger.warning(
                         f"Field '{field}' is too long and will be truncated."
@@ -212,18 +218,23 @@ class FRU:
 
         return area_data
 
-    def rebuild_fru_binary(self):
+    def rebuild_fru_binary(self) -> bool:
         new_data = bytearray(8)  # Space for common header
 
         for i, area in enumerate(["chassis", "board", "product"]):
             if getattr(self, f"{area}_info"):
-                area_data = self.build_area(area)
+                try:
+                    area_data = self.build_area(area)
+                except ValueError as e:
+                    logger.error(f"Error building {area} area: {e}")
+                    return False
                 self.common_header[i + 2] = len(new_data) // 8
                 new_data.extend(area_data)
 
         struct.pack_into("BBBBBB", new_data, 0, *self.common_header)
         new_data[7] = self.calculate_checksum(new_data[:7])
         self.raw_data = new_data
+        return True
 
 
 class FRUEncoder(json.JSONEncoder):
@@ -272,12 +283,16 @@ def main():
                     date_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     fru.modify_field("BMD", date_now)
 
-            fru.rebuild_fru_binary()
+            if not fru.rebuild_fru_binary():
+                print("Failed to rebuild FRU binary due to errors.")
+                return 1
+
             fru.write_bin(args.fru_file)
             print(f"FRU data has been updated and written to {args.fru_file}.")
-            return
+            return 0
         else:
             logger.warning("No modifications specified.")
+            return 0
 
     print(
         json.dumps(
@@ -293,7 +308,8 @@ def main():
             cls=FRUEncoder,
         )
     )
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
