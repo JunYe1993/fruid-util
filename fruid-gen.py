@@ -18,7 +18,7 @@ FIELD_CONFIG = {
     "Chassis Part Number": ("CPN", ["M3"]),
     "Chassis Serial Number": ("CSN", ["M3"]),
     "Chassis Custom Data 1": ("CCD1", ["M3"]),
-    "Chassis Custom Data 2": ("CCD2", ["M3"]),
+    "Chassis Custom Data 2": ("CCD2", ["M1", "M3"]),
     "Chassis Custom Data 3": ("CCD3", ["M3"]),
     "Board Mfg": ("BM", ["M1", "M3"]),
     "Board Product": ("BP", ["M1", "M3"]),
@@ -65,15 +65,25 @@ def is_non_displayable_ascii(value):
 
 
 # To identify if the field needs input data
-def is_dynamic_content(value):
+def is_dynamic_content(value, stage):
     if not isinstance(value, str):
         return False
 
+    stage_keywords = {
+        "M1": r"m1[\s_\n]*(odm[\s_\n]*)?(define|program)",
+        "M3": r"m3[\s_\n]*(odm[\s_\n]*)?(define|program)",
+    }
+    for key, keyword in stage_keywords.items():
+        if re.search(keyword, value, re.IGNORECASE):
+            if key != stage:
+                return None
+            return True
+
     dynamic_keywords = [
-        r"odm[\s_]?define",
-        r"odm[\s_]?program",
+        r"odm[\s_\n]*define",
+        r"odm[\s_\n]*program",
         r"\[.*?\]",
-        r"batch[\s_]?id",
+        r"batch[\s_\n]*id",
     ]
     return any(re.search(keyword, value, re.IGNORECASE) for keyword in dynamic_keywords)
 
@@ -163,7 +173,10 @@ def generate_fru_script_content(fru_fields, script_type, board_pn):
         if not value or is_empty_field(value):
             continue
 
-        if is_dynamic_content(value):
+        dynamic = is_dynamic_content(value, script_type)
+        if dynamic is None:
+            continue
+        if dynamic:
             read_commands.append(f'read -p "{field}: " {option}')
             python_commands.append(f' --{option} "${option}"')
             continue
