@@ -153,7 +153,9 @@ Changed/Added:
 
 
 def generate_fru_script_content(fru_fields, script_type, board_pn):
-    script_content = "#!/bin/sh\n\nUTIL=../fruid-util.py\nBIN=${1:-fru.bin}\n\n"
+    script_content = (
+        '#!/bin/sh\n\nUTIL=$(dirname "$0")/../fruid-util.py\nBIN=${1:-fru.bin}\n\n'
+    )
 
     assignments = []
     read_commands = []
@@ -194,18 +196,18 @@ def generate_fru_script_content(fru_fields, script_type, board_pn):
     script_content += "\n".join(assignments) + "\n\n"
     script_content += "\n".join(read_commands) + "\n"
     if script_type == "M1":
-        script_content += "rm -f $BIN\n\n"
+        script_content += 'rm -f "$BIN"\n\n'
     else:
         script_content += "\n"
 
-    script_content += "python3 $UTIL $BIN -m \\\n"
+    script_content += 'python3 "$UTIL" "$BIN" -m \\\n'
     script_content += " \\\n".join(python_commands)
     if script_type == "M3":
         script_content += " \\\n --BMD \"$(date '+%F %H:%M:%S')\"\n"
     else:
         script_content += "\n"
 
-    script_content += "\npython3 $UTIL $BIN\n\n"
+    script_content += '\npython3 "$UTIL" "$BIN"\n\n'
 
     return script_content
 
