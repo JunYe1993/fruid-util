@@ -163,6 +163,11 @@ def generate_fru_script_content(fru_fields, script_type, board_pn):
         if not value or is_empty_field(value):
             continue
 
+        if is_dynamic_content(value):
+            read_commands.append(f'read -p "{field}: " {option}')
+            python_commands.append(f' --{option} "${option}"')
+            continue
+
         if is_non_displayable_ascii(value):
             print(
                 f"Warning: Non-displayable content found in '{field}' for {board_pn} ({script_type})"
@@ -170,12 +175,8 @@ def generate_fru_script_content(fru_fields, script_type, board_pn):
             continue
 
         value = strip_field_content(value)
-        if is_dynamic_content(value):
-            read_commands.append(f'read -p "{field}: " {option}')
-            python_commands.append(f' --{option} "${option}"')
-        else:
-            assignments.append(f'{option}="{value}"')
-            python_commands.append(f' --{option} "${option}"')
+        assignments.append(f'{option}="{value}"')
+        python_commands.append(f' --{option} "${option}"')
 
     script_content += "\n".join(assignments) + "\n\n"
     script_content += "\n".join(read_commands) + "\n"
