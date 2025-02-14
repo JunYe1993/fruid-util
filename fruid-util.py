@@ -15,7 +15,7 @@ __version__ = "v2025.02.0"
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
-CustomerDataMax = 24
+CustomerDataMax = 26
 base_fields = {}
 base_fields["CPN"] = ("chassis", "Chassis Part Number")
 base_fields["CSN"] = ("chassis", "Chassis Serial Number")
