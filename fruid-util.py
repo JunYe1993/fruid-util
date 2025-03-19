@@ -9,7 +9,7 @@ from pathlib import Path
 import logging
 import sys
 
-__version__ = "v2024.43.0"
+__version__ = "v2025.02.0"
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -22,6 +22,27 @@ class FieldMapping(Enum):
     CCD1 = ("chassis", "Chassis Custom Data 1")
     CCD2 = ("chassis", "Chassis Custom Data 2")
     CCD3 = ("chassis", "Chassis Custom Data 3")
+    CCD4 = ("chassis", "Chassis Custom Data 4")
+    CCD5 = ("chassis", "Chassis Custom Data 5")
+    CCD6 = ("chassis", "Chassis Custom Data 6")
+    CCD7 = ("chassis", "Chassis Custom Data 7")
+    CCD8 = ("chassis", "Chassis Custom Data 8")
+    CCD9 = ("chassis", "Chassis Custom Data 9")
+    CCD10 = ("chassis", "Chassis Custom Data 10")
+    CCD11 = ("chassis", "Chassis Custom Data 11")
+    CCD12 = ("chassis", "Chassis Custom Data 12")
+    CCD13 = ("chassis", "Chassis Custom Data 13")
+    CCD14 = ("chassis", "Chassis Custom Data 14")
+    CCD15 = ("chassis", "Chassis Custom Data 15")
+    CCD16 = ("chassis", "Chassis Custom Data 16")
+    CCD17 = ("chassis", "Chassis Custom Data 17")
+    CCD18 = ("chassis", "Chassis Custom Data 18")
+    CCD19 = ("chassis", "Chassis Custom Data 19")
+    CCD20 = ("chassis", "Chassis Custom Data 20")
+    CCD21 = ("chassis", "Chassis Custom Data 21")
+    CCD22 = ("chassis", "Chassis Custom Data 22")
+    CCD23 = ("chassis", "Chassis Custom Data 23")
+    CCD24 = ("chassis", "Chassis Custom Data 24")
     BMD = ("board", "Board Mfg Date")
     BM = ("board", "Board Mfg")
     BP = ("board", "Board Product")
@@ -178,10 +199,14 @@ class FRU:
                 area_data.extend(struct.pack("<I", mfg_date["minutes"])[:3])
 
         # Find the highest used custom field
-        max_custom_field = 0
-        for i in range(1, 7):
-            if f"{area_name.capitalize()} Custom Data {i}" in info:
-                max_custom_field = i
+        max_custom_field = max(
+            (
+                int(k.split()[-1])
+                for k in info.keys()
+                if k.startswith(f"{area_name.capitalize()} Custom Data ")
+            ),
+            default=0,
+        )
 
         # Add all fields including custom data up to max_custom_field
         fields = self.FIELD_ORDER[area_name] + [
