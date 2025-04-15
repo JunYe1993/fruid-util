@@ -8,7 +8,7 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-__version__ = "v2024.43.0"
+__version__ = "v2025.16.0"
 
 # Set your platform name here
 PLATFORM_NAME = "PlatformName"
@@ -241,6 +241,7 @@ def generate_fru_scripts(excel_file):
 
     board_info = defaultdict(list)
     versions = ["v000"]
+    script_content_map = {}
 
     for col in columns:
         fru_fields = {}
@@ -255,15 +256,24 @@ def generate_fru_scripts(excel_file):
         versions.append(get_version_from_fru_id(fru_fields))
 
         for stage in ["M1", "M3"]:
-            script_content = generate_fru_script_content(fru_fields, stage, board_pn)
+            key = (board_pn, stage)
+            # Store first occurrence of each board+stage combination
+            if key not in script_content_map:
+                script_content = generate_fru_script_content(
+                    fru_fields, stage, board_pn
+                )
+                script_content_map[key] = {
+                    "content": script_content,
+                    "board_name": board_name,
+                }
 
-            # Write the script to a file
-            output_script = os.path.join(base_dir, stage, f"{board_pn}.sh")
-            with open(output_script, "w") as f:
-                f.write(script_content)
-
-            os.chmod(output_script, 0o755)
-            board_info[stage].append((board_pn, board_name))
+    # Write all scripts after processing all data
+    for (board_pn, stage), data in script_content_map.items():
+        output_script = os.path.join(base_dir, stage, f"{board_pn}.sh")
+        with open(output_script, "w") as f:
+            f.write(data["content"])
+        os.chmod(output_script, 0o755)
+        board_info[stage].append((board_pn, data["board_name"]))
 
     # Create release note
     create_release_note(base_dir, max(versions), board_info)
