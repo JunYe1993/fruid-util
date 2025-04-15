@@ -9,7 +9,7 @@ from pathlib import Path
 import logging
 import sys
 
-__version__ = "v2025.02.0"
+__version__ = "v2025.16.0"
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -191,7 +191,10 @@ class FRU:
 
         # Add area-specific headers
         if area_name == "chassis":
-            area_data.append(info.get("Chassis Type", 0x17))
+            chassis_type = info.get("Chassis Type", 0x17)
+            if chassis_type == 0x00:
+                chassis_type = 0x17
+            area_data.append(chassis_type)
         elif area_name in ["board", "product"]:
             area_data.append(info.get("Language", 0x19))
             if area_name == "board":
