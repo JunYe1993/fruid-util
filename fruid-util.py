@@ -9,7 +9,7 @@ from pathlib import Path
 import logging
 import sys
 
-__version__ = "v2025.17.0"
+__version__ = "v2025.18.0"
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -303,7 +303,7 @@ class FRU:
             return self.FIELD_ORDER[area_name][index]
         return f"{area_name.capitalize()} Custom Data {index - len(self.FIELD_ORDER[area_name]) + 1}"
 
-    def modify_field(self, field: str, value: str) -> None:
+    def modify_field(self, field: str, value: Union[str, bytes]) -> None:
         area, full_field = FieldMapping[field].value[:2]
         info = getattr(self, f"{area}_info")
         if field == "BMD":
@@ -486,6 +486,7 @@ def main():
     field_opt = parser.add_argument_group("field options")
     for field in FieldMapping:
         field_opt.add_argument(f"--{field.name}", help=f"modify {field.value[1]}")
+        field_opt.add_argument(f"--{field.name}-raw", help=argparse.SUPPRESS)
 
     args = parser.parse_args()
 
@@ -502,6 +503,13 @@ def main():
             value = getattr(args, field.name)
             if value is not None:
                 fru.modify_field(field.name, value)
+                modified = True
+                continue
+
+            value = getattr(args, f"{field.name}_raw")
+            if value is not None:
+                byte_value = bytes(int(x, 16) for x in value.split())
+                fru.modify_field(field.name, byte_value)
                 modified = True
 
         if modified:
