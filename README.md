@@ -39,6 +39,9 @@ field options:
   --CCD1 CCD1    modify Chassis Custom Data 1
   --CCD2 CCD2    modify Chassis Custom Data 2
   --CCD3 CCD3    modify Chassis Custom Data 3
+  --CCD4 CCD4    modify Chassis Custom Data 4
+  --CCD5 CCD5    modify Chassis Custom Data 5
+  --CCD6 CCD6    modify Chassis Custom Data 6
   --BMD BMD      modify Board Mfg Date
   --BM BM        modify Board Mfg
   --BP BP        modify Board Product

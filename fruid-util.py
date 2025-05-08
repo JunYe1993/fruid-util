@@ -158,7 +158,9 @@ class FRU:
 
         # Add area-specific headers
         if area_name == "chassis":
-            area_data.append(info.get("Chassis Type", 0x17))
+            # Sometimes during test chassis type might be changed
+            # area_data.append(info.get("Chassis Type", 0x17))
+            area_data.append(0x17)
         elif area_name in ["board", "product"]:
             area_data.append(info.get("Language", 0x19))
             if area_name == "board":
