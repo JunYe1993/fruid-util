@@ -16,7 +16,7 @@ This Python script, `fruid-util.py`, is a tool for parsing, modifying, and rebui
 
 ## Requirements
 
-- Python 3.6+
+- Python 3.8+
 - No external dependencies required
 
 ## Usage

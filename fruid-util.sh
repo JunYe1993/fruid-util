@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION="v2024.43.0"
+VERSION="v2025.16.0"
 
 declare -A chassis_info
 declare -A board_info
@@ -18,6 +18,27 @@ FIELD_ORDER_CHASSIS[CSN]="Serial Number"; FIELD_ORDER_CHASSIS_KEYS+=("CSN")
 FIELD_ORDER_CHASSIS[CCD1]="Custom Data 1"; FIELD_ORDER_CHASSIS_KEYS+=("CCD1")
 FIELD_ORDER_CHASSIS[CCD2]="Custom Data 2"; FIELD_ORDER_CHASSIS_KEYS+=("CCD2")
 FIELD_ORDER_CHASSIS[CCD3]="Custom Data 3"; FIELD_ORDER_CHASSIS_KEYS+=("CCD3")
+FIELD_ORDER_CHASSIS[CCD4]="Custom Data 4"; FIELD_ORDER_CHASSIS_KEYS+=("CCD4")
+FIELD_ORDER_CHASSIS[CCD5]="Custom Data 5"; FIELD_ORDER_CHASSIS_KEYS+=("CCD5")
+FIELD_ORDER_CHASSIS[CCD6]="Custom Data 6"; FIELD_ORDER_CHASSIS_KEYS+=("CCD6")
+FIELD_ORDER_CHASSIS[CCD7]="Custom Data 7"; FIELD_ORDER_CHASSIS_KEYS+=("CCD7")
+FIELD_ORDER_CHASSIS[CCD8]="Custom Data 8"; FIELD_ORDER_CHASSIS_KEYS+=("CCD8")
+FIELD_ORDER_CHASSIS[CCD9]="Custom Data 9"; FIELD_ORDER_CHASSIS_KEYS+=("CCD9")
+FIELD_ORDER_CHASSIS[CCD10]="Custom Data 10"; FIELD_ORDER_CHASSIS_KEYS+=("CCD10")
+FIELD_ORDER_CHASSIS[CCD11]="Custom Data 11"; FIELD_ORDER_CHASSIS_KEYS+=("CCD11")
+FIELD_ORDER_CHASSIS[CCD12]="Custom Data 12"; FIELD_ORDER_CHASSIS_KEYS+=("CCD12")
+FIELD_ORDER_CHASSIS[CCD13]="Custom Data 13"; FIELD_ORDER_CHASSIS_KEYS+=("CCD13")
+FIELD_ORDER_CHASSIS[CCD14]="Custom Data 14"; FIELD_ORDER_CHASSIS_KEYS+=("CCD14")
+FIELD_ORDER_CHASSIS[CCD15]="Custom Data 15"; FIELD_ORDER_CHASSIS_KEYS+=("CCD15")
+FIELD_ORDER_CHASSIS[CCD16]="Custom Data 16"; FIELD_ORDER_CHASSIS_KEYS+=("CCD16")
+FIELD_ORDER_CHASSIS[CCD17]="Custom Data 17"; FIELD_ORDER_CHASSIS_KEYS+=("CCD17")
+FIELD_ORDER_CHASSIS[CCD18]="Custom Data 18"; FIELD_ORDER_CHASSIS_KEYS+=("CCD18")
+FIELD_ORDER_CHASSIS[CCD19]="Custom Data 19"; FIELD_ORDER_CHASSIS_KEYS+=("CCD19")
+FIELD_ORDER_CHASSIS[CCD20]="Custom Data 20"; FIELD_ORDER_CHASSIS_KEYS+=("CCD20")
+FIELD_ORDER_CHASSIS[CCD21]="Custom Data 21"; FIELD_ORDER_CHASSIS_KEYS+=("CCD21")
+FIELD_ORDER_CHASSIS[CCD22]="Custom Data 22"; FIELD_ORDER_CHASSIS_KEYS+=("CCD22")
+FIELD_ORDER_CHASSIS[CCD23]="Custom Data 23"; FIELD_ORDER_CHASSIS_KEYS+=("CCD23")
+FIELD_ORDER_CHASSIS[CCD24]="Custom Data 24"; FIELD_ORDER_CHASSIS_KEYS+=("CCD24")
 
 # Board fields
 FIELD_ORDER_BOARD[BMD]="Mfg Date"; FIELD_ORDER_BOARD_KEYS+=("BMD")
@@ -301,7 +322,9 @@ build_area() {
     # Add area-specific headers
     case "$area_name" in
         chassis)
-            area_data+="${area_info["Chassis Type"]:-17}"
+            local chassis_type="${area_info["Chassis Type"]:-17}"
+            [[ "$chassis_type" == "00" ]] && chassis_type="17"
+            area_data+="$chassis_type"
             ;;
         board)
             area_data+="${area_info["Language"]:-19}"
@@ -314,7 +337,7 @@ build_area() {
 
     # Find the highest used custom field
     local max_custom_field=0
-    for i in {1..6}; do
+    for i in {1..24}; do
         if [ -n "${area_info["Custom Data $i"]}" ]; then
             max_custom_field=$i
         fi

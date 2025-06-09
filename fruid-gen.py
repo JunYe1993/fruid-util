@@ -3,47 +3,48 @@ import openpyxl
 import os
 import re
 import shutil
+import subprocess
 import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-__version__ = "v2024.43.0"
+__version__ = "v2025.19.0"
 
 # Set your platform name here
 PLATFORM_NAME = "PlatformName"
 
-# Field configuration: (option, [script_types])
+# Field configuration: (option, [script_types], default_length)
 FIELD_CONFIG = {
-    "Chassis Part Number": ("CPN", ["M3"]),
-    "Chassis Serial Number": ("CSN", ["M3"]),
-    "Chassis Custom Data 1": ("CCD1", ["M3"]),
-    "Chassis Custom Data 2": ("CCD2", ["M1", "M3"]),
-    "Chassis Custom Data 3": ("CCD3", ["M3"]),
-    "Board Mfg": ("BM", ["M1", "M3"]),
-    "Board Product": ("BP", ["M1", "M3"]),
-    "Board Serial": ("BSN", ["M1"]),
-    "Board Part Number": ("BPN", ["M1", "M3"]),
-    "Board FRU ID": ("BFI", ["M1", "M3"]),
-    "Board Custom Data 1": ("BCD1", ["M1", "M3"]),
-    "Board Custom Data 2": ("BCD2", ["M1"]),
-    "Board Custom Data 3": ("BCD3", ["M1"]),
-    "Board Custom Data 4": ("BCD4", ["M1", "M3"]),
-    "Board Custom Data 5": ("BCD5", ["M1"]),
-    "Board Custom Data 6": ("BCD6", ["M1"]),
-    "Product Manufacturer": ("PM", ["M1", "M3"]),
-    "Product Name": ("PN", ["M1", "M3"]),
-    "Product Part Number": ("PPN", ["M3"]),
-    "Product Version": ("PV", ["M1", "M3"]),
-    "Product Serial": ("PSN", ["M3"]),
-    "Product Asset Tag": ("PAT", ["M3"]),
-    "Product FRU ID": ("PFI", ["M3"]),
-    "Product Custom Data 1": ("PCD1", ["M3"]),
-    "Product Custom Data 2": ("PCD2", ["M3"]),
-    "Product Custom Data 3": ("PCD3", ["M3"]),
-    "Product Custom Data 4": ("PCD4", ["M3"]),
-    "Product Custom Data 5": ("PCD5", ["M3"]),
-    "Product Custom Data 6": ("PCD6", ["M3"]),
+    "Chassis Part Number": ("CPN", ["M3"], None),
+    "Chassis Serial Number": ("CSN", ["M3"], None),
+    "Chassis Custom Data 1": ("CCD1", ["M3"], None),
+    "Chassis Custom Data 2": ("CCD2", ["M1", "M3"], 12),
+    "Chassis Custom Data 3": ("CCD3", ["M3"], None),
+    "Board Mfg": ("BM", ["M1", "M3"], None),
+    "Board Product": ("BP", ["M1", "M3"], None),
+    "Board Serial": ("BSN", ["M1"], 15),
+    "Board Part Number": ("BPN", ["M1", "M3"], None),
+    "Board FRU ID": ("BFI", ["M1", "M3"], None),
+    "Board Custom Data 1": ("BCD1", ["M1", "M3"], None),
+    "Board Custom Data 2": ("BCD2", ["M1"], 7),
+    "Board Custom Data 3": ("BCD3", ["M1"], 5),
+    "Board Custom Data 4": ("BCD4", ["M1", "M3"], None),
+    "Board Custom Data 5": ("BCD5", ["M1"], None),
+    "Board Custom Data 6": ("BCD6", ["M1"], None),
+    "Product Manufacturer": ("PM", ["M1", "M3"], None),
+    "Product Name": ("PN", ["M1", "M3"], None),
+    "Product Part Number": ("PPN", ["M3"], None),
+    "Product Version": ("PV", ["M1", "M3"], None),
+    "Product Serial": ("PSN", ["M3"], None),
+    "Product Asset Tag": ("PAT", ["M3"], None),
+    "Product FRU ID": ("PFI", ["M3"], None),
+    "Product Custom Data 1": ("PCD1", ["M3"], None),
+    "Product Custom Data 2": ("PCD2", ["M3"], None),
+    "Product Custom Data 3": ("PCD3", ["M3"], None),
+    "Product Custom Data 4": ("PCD4", ["M3"], None),
+    "Product Custom Data 5": ("PCD5", ["M3"], None),
+    "Product Custom Data 6": ("PCD6", ["M3"], None),
 }
 
 
@@ -115,6 +116,14 @@ def create_release_note(folder_path, version, board_info):
         if pn not in all_board_pns:
             all_board_pns.append(pn)
 
+    ict_section = ""
+    if "ICT" in board_info and board_info["ICT"]:
+        ict_section = "     iii. ICT: For ICT.\n"
+        ict_section += chr(10).join(
+            f"        {pn}: {product}" for pn, product in board_info["ICT"]
+        )
+        ict_section += "\n"
+
     content = f"""===============================================================
    FRU Release Note {version}
 ===============================================================
@@ -123,13 +132,13 @@ Date: {datetime.now().strftime('%Y/%m/%d')}
 Hardware Platform: {PLATFORM_NAME}
 
 Note:
-  1. The utility and scripts for programming FRU on Linux OS (with Python 3.6+)
+  1. The utility and scripts for programming FRU on Linux OS (with Python 3.8+)
   2. The scripts of programming FRU for specific boards.
      i. M1: For M1 stage.
 {chr(10).join(f'        {pn}.sh: {product}' for pn, product in board_info['M1'])}
      ii. M3: For M3 stage.
 {chr(10).join(f'        {pn}.sh: {product}' for pn, product in board_info['M3'])}
-
+{ict_section}
 Example procedure:
   1. Programming FRU for M1:
      (1) Change directory to "M1"
@@ -152,9 +161,34 @@ Changed/Added:
         f.write(content)
 
 
+def determine_field_length(field, value):
+    # Check for [#..] pattern in the value
+    if isinstance(value, str):
+        pound_match = re.search(r"\[#(\d+)\]", value)
+        if pound_match:
+            # Return the numeric value
+            return int(pound_match.group(1))
+
+    if field in FIELD_CONFIG and len(FIELD_CONFIG[field]) > 2:
+        default_length = FIELD_CONFIG[field][2]
+        if default_length is not None:
+            return default_length
+
+    return 0
+
+
 def generate_fru_script_content(fru_fields, script_type, board_pn):
+    is_ict = False
+    if script_type == "ICT":
+        is_ict = True
+        script_type = "M1"
+
+    xlsx_line = f'XLSX="${{BIN%.*}}.xlsx"\n' if is_ict else ""
     script_content = (
-        '#!/bin/sh\n\nUTIL=$(dirname "$0")/../fruid-util.py\nBIN=${1:-fru.bin}\n\n'
+        "#!/bin/sh\n\n"
+        'UTIL=$(dirname "$0")/../fruid-util.py\n'
+        "BIN=${1:-fru.bin}\n"
+        f"{xlsx_line}\n"
     )
 
     assignments = []
@@ -167,7 +201,9 @@ def generate_fru_script_content(fru_fields, script_type, board_pn):
     ):
         python_commands.append(' --CPN ""')
 
-    for field, (option, script_types) in FIELD_CONFIG.items():
+    for field, config in FIELD_CONFIG.items():
+        option = config[0]
+        script_types = config[1]
         if script_type not in script_types:
             continue
 
@@ -179,8 +215,21 @@ def generate_fru_script_content(fru_fields, script_type, board_pn):
         if dynamic is None:
             continue
         if dynamic:
-            read_commands.append(f'read -p "{field}: " {option}')
-            python_commands.append(f' --{option} "${option}"')
+            if is_ict:
+                # For ICT, convert manual entry to raw zeros of appropriate length
+                length = determine_field_length(field, value)
+                if length > 0:
+                    zeros = "0 " * length
+                    zeros = zeros.strip()  # Remove trailing space
+                    assignments.append(f'{option}="{zeros}"')
+                    python_commands.append(f' --{option}-raw "${option}"')
+                else:
+                    # Default to empty string if we can't determine length
+                    assignments.append(f'{option}=""')
+                    python_commands.append(f' --{option} "${option}"')
+            else:
+                read_commands.append(f'read -p "{field}: " {option}')
+                python_commands.append(f' --{option} "${option}"')
             continue
 
         if is_non_displayable_ascii(value):
@@ -207,12 +256,15 @@ def generate_fru_script_content(fru_fields, script_type, board_pn):
     else:
         script_content += "\n"
 
-    script_content += '\npython3 "$UTIL" "$BIN"\n\n'
+    script_content += '\npython3 "$UTIL" "$BIN"'
+    if is_ict:
+        script_content += ' -f "$XLSX"'
+    script_content += "\n\n"
 
     return script_content
 
 
-def generate_fru_scripts(excel_file):
+def generate_fru_scripts(excel_file, ict_mode=False):
     wb = openpyxl.load_workbook(excel_file)
     sheet = wb.active
 
@@ -235,12 +287,18 @@ def generate_fru_scripts(excel_file):
     for stage in ["M1", "M3"]:
         os.makedirs(os.path.join(base_dir, stage), exist_ok=True)
 
+    # Create ICT directory
+    if ict_mode:
+        os.makedirs(os.path.join(base_dir, "ICT"), exist_ok=True)
+
     # Copy utility files
     for file in ["fruid-util.py", "README.md"]:
         shutil.copy(file, base_dir)
 
     board_info = defaultdict(list)
     versions = ["v000"]
+    script_content_map = {}
+    ict_script_content_map = {}
 
     for col in columns:
         fru_fields = {}
@@ -255,15 +313,59 @@ def generate_fru_scripts(excel_file):
         versions.append(get_version_from_fru_id(fru_fields))
 
         for stage in ["M1", "M3"]:
-            script_content = generate_fru_script_content(fru_fields, stage, board_pn)
+            key = (board_pn, stage)
+            # Store first occurrence of each board+stage combination
+            if key not in script_content_map:
+                script_content = generate_fru_script_content(
+                    fru_fields, stage, board_pn
+                )
+                script_content_map[key] = {
+                    "content": script_content,
+                    "board_name": board_name,
+                }
 
-            # Write the script to a file
-            output_script = os.path.join(base_dir, stage, f"{board_pn}.sh")
-            with open(output_script, "w") as f:
-                f.write(script_content)
+        if ict_mode:
+            if board_pn not in ict_script_content_map:
+                ict_script_content = generate_fru_script_content(
+                    fru_fields, "ICT", board_pn
+                )
+                ict_script_content_map[board_pn] = {
+                    "content": ict_script_content,
+                    "board_name": board_name,
+                }
 
-            os.chmod(output_script, 0o755)
-            board_info[stage].append((board_pn, board_name))
+    # Write all scripts after processing all data
+    for (board_pn, stage), data in script_content_map.items():
+        output_script = os.path.join(base_dir, stage, f"{board_pn}.sh")
+        with open(output_script, "w") as f:
+            f.write(data["content"])
+        os.chmod(output_script, 0o755)
+        board_info[stage].append((board_pn, data["board_name"]))
+
+    # Write ICT scripts and generate bin/xlsx files
+    if ict_mode:
+        for board_pn, data in ict_script_content_map.items():
+            # Create directory for board output files
+            board_dir = os.path.join(base_dir, "ICT", board_pn)
+            os.makedirs(board_dir, exist_ok=True)
+
+            # Write temporary script directly in ICT directory
+            temp_script_path = os.path.join(base_dir, "ICT", f"__{board_pn}.sh")
+            with open(temp_script_path, "w") as f:
+                f.write(data["content"])
+            os.chmod(temp_script_path, 0o755)
+            board_info["ICT"].append((board_pn, data["board_name"]))
+
+            # Execute script to generate bin and xlsx files
+            bin_path = os.path.join(board_pn, f"{board_pn}.bin")
+            subprocess.run(
+                [f"./__{board_pn}.sh", bin_path],
+                cwd=os.path.join(base_dir, "ICT"),
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            os.remove(temp_script_path)
 
     # Create release note
     create_release_note(base_dir, max(versions), board_info)
@@ -274,7 +376,7 @@ def generate_fru_scripts(excel_file):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Generate FRU scripts from Excel data",
-        usage="python3 %(prog)s excel_file [-h] [-v]",
+        usage="python3 %(prog)s excel_file [-h] [-v] [-i]",
     )
     parser.add_argument(
         "-v", "--version", action="version", version=f"fruid-gen {__version__}"
@@ -286,6 +388,12 @@ if __name__ == "__main__":
         default=Path("fruid.xlsx"),
         help="path to the Excel file containing FRU data (default: fruid.xlsx)",
     )
+    parser.add_argument(
+        "-i",
+        "--ict",
+        action="store_true",
+        help="generate ICT bin files and documents",
+    )
 
     args = parser.parse_args()
 
@@ -293,4 +401,4 @@ if __name__ == "__main__":
         print(f"Error: The specified Excel file '{args.excel_file}' does not exist.")
         sys.exit(1)
 
-    generate_fru_scripts(args.excel_file)
+    generate_fru_scripts(args.excel_file, args.ict)

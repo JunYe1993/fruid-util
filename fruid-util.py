@@ -2,14 +2,14 @@ import struct
 from datetime import datetime, timedelta
 import argparse
 import json
-from typing import Dict, Any
+from typing import Dict, Any, List, Union
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 import logging
 import sys
 
-__version__ = "v2025.02.0"
+__version__ = "v2025.18.0"
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -45,6 +45,7 @@ class FRU:
     board_info: Dict[str, Any] = field(default_factory=dict)
     product_info: Dict[str, Any] = field(default_factory=dict)
     raw_data: bytearray = field(default_factory=bytearray)
+    detail_data: List[List[str]] = field(default_factory=list)
 
     FIELD_ORDER = {
         "chassis": ["Chassis Part Number", "Chassis Serial Number"],
@@ -66,59 +67,170 @@ class FRU:
         ],
     }
 
-    def parse_bin(self, filename: Path) -> None:
-        with filename.open("rb") as f:
-            self.raw_data = bytearray(f.read())
+    def parse_bin(self, filename: Path, detailed: bool = False) -> None:
+        if filename is not None:
+            with filename.open("rb") as f:
+                self.raw_data = bytearray(f.read())
+        elif not self.raw_data:
+            raise ValueError("No raw data available and no filename provided")
 
-        self.common_header = list(struct.unpack("BBBBBB", self.raw_data[:6]))
+        self.common_header = list(struct.unpack("BBBBBBBB", self.raw_data[:8]))
+        if detailed:
+            self.detail_data = [["Offset", "Value", "Description"]]
+            fields = [
+                "Common Header Format Version",
+                "Internal Use Area Offset",
+                "Chassis Info Area Offset",
+                "Board Info Area Offset",
+                "Product Info Area Offset",
+                "MultiRecord Area Offset",
+                "Pad",
+                "Common Header Checksum",
+            ]
+            for i, field in enumerate(fields):
+                self.append_detail_row(i, self.common_header[i], field)
+
+            self.detail_data.append(["", "", ""])
 
         for area, offset in [("chassis", 2), ("board", 3), ("product", 4)]:
             if self.common_header[offset]:
-                self.parse_area(self.raw_data[self.common_header[offset] * 8 :], area)
+                self.parse_area(area, self.common_header[offset] * 8, detailed)
 
-    def parse_area(self, data: bytearray, area_name: str) -> None:
+    def parse_area(self, area_name: str, area_offset: int, detailed: bool) -> None:
+        if area_offset + 2 > len(self.raw_data):
+            return
+
+        area_len = self.raw_data[area_offset + 1] * 8
+        if area_len < 8 or area_offset + area_len > len(self.raw_data):
+            return
+
+        data = self.raw_data[area_offset : area_offset + area_len]
+        if detailed:
+            area_title = f"{area_name.capitalize()} Info Area"
+            self.append_detail_row(area_offset, data[0], f"{area_title} Format Version")
+            self.append_detail_row(area_offset + 1, data[1], f"{area_title} Length")
+
         info = {}
         offset = 2  # Skip format version and area length
-        area_length = data[1] * 8
 
         if area_name == "chassis":
             info["Chassis Type"] = data[offset]
+            if detailed:
+                self.append_detail_row(
+                    area_offset + offset, data[offset], "Chassis Type"
+                )
             offset += 1
         elif area_name in ["board", "product"]:
             info["Language"] = data[offset]
+            if detailed:
+                self.append_detail_row(
+                    area_offset + offset, data[offset], "Language Code"
+                )
             offset += 1
             if area_name == "board":
                 info["Board Mfg Date"] = self.parse_mfg_date(data[offset : offset + 3])
+                if detailed:
+                    self.append_detail_row(
+                        area_offset + offset,
+                        data[offset : offset + 3],
+                        "MFG Date Time",
+                        SHOW_XX,
+                    )
                 offset += 3
 
-        while offset < area_length - 1:  # -1 to account for checksum
+        sum_offset = area_len - 1  # -1 to account for checksum
+        while offset < sum_offset:
             type_length = data[offset]
             if type_length == 0xC1:  # End of area
                 break
 
-            offset += 1
             length = type_length & 0x3F
-            value = self.decode_field(data[offset : offset + length])
+            field_value = data[offset + 1 : offset + 1 + length]
             field_name = self.get_field_name(
                 area_name, len(info) - (2 if area_name == "board" else 1)
             )
-            info[field_name] = value
-            offset += length
 
-        # Verify checksum
-        calculated_checksum = self.calculate_checksum(data[: area_length - 1])
-        stored_checksum = data[area_length - 1]
+            info[field_name] = self.decode_field(field_value)
+            if detailed:
+                self.append_detail_row(
+                    area_offset + offset, type_length, f"{field_name} Type/Length"
+                )
+                if length > 0:
+                    field_enum = FieldMapping.find_field(area_name, field_name)
+                    self.append_detail_row(
+                        area_offset + offset + 1,
+                        field_value,
+                        field_enum.description,
+                        field_enum.display_type,
+                    )
+
+            offset += 1 + length
+
+        if detailed and offset < sum_offset:
+            if data[offset] == 0xC1:
+                self.append_detail_row(
+                    area_offset + offset, data[offset], "End of Field Marker"
+                )
+                offset += 1
+
+                pad_len = sum_offset - offset
+                if pad_len > 0:
+                    self.append_detail_row(
+                        area_offset + offset,
+                        data[offset : offset + pad_len],
+                        "Pad",
+                    )
+                    offset += pad_len
+
+        # Checksum
+        calculated_checksum = self.calculate_checksum(data[:sum_offset])
+        stored_checksum = data[sum_offset]
         if calculated_checksum != stored_checksum:
             logger.warning(
                 f"{area_name.capitalize()} area checksum mismatch: "
                 f"calculated {calculated_checksum}, stored {stored_checksum}"
             )
+        if detailed:
+            self.append_detail_row(
+                area_offset + sum_offset,
+                data[sum_offset],
+                f"{area_name.capitalize()} Info Area Checksum",
+                0 if area_name == "chassis" else SHOW_XX,
+            )
+            self.detail_data.append(["", "", ""])
 
         setattr(self, f"{area_name}_info", info)
 
+    def append_detail_row(
+        self, offset: int, data: Union[int, bytes, bytearray], desc: str, show: int = 0
+    ) -> None:
+        if isinstance(data, (bytes, bytearray)):
+            length = len(data)
+            if length == 1:
+                offset_str = f"{offset:02X}h"
+            else:
+                offset_str = f"{offset:02X}h:{offset+length-1:02X}h"
+
+            if show == SHOW_XX:
+                value_str = " ".join(["XXh"] * length)
+            else:
+                value_str = " ".join([f"{b:02X}h" for b in data])
+
+            if show == SHOW_VALUE:
+                desc_value = "".join(
+                    chr(b) if 32 <= b < 127 else "?" for b in data if b
+                )
+                if desc_value:
+                    desc = f"{desc}: [{desc_value}]"
+        else:
+            offset_str = f"{offset:02X}h"
+            value_str = "XXh" if show == SHOW_XX else f"{data:02X}h"
+
+        self.detail_data.append([offset_str, value_str, desc])
+
     @staticmethod
     def decode_field(data: bytes) -> str:
-        return data.decode("ascii").rstrip("\x00")
+        return data.decode("ascii").rstrip("\0")
 
     @classmethod
     def parse_mfg_date(cls, date_bytes: bytes) -> Dict[str, Any]:
@@ -134,8 +246,8 @@ class FRU:
             return self.FIELD_ORDER[area_name][index]
         return f"{area_name.capitalize()} Custom Data {index - len(self.FIELD_ORDER[area_name]) + 1}"
 
-    def modify_field(self, field: str, value: str) -> None:
-        area, full_field = FieldMapping[field].value
+    def modify_field(self, field: str, value: Union[str, bytes]) -> None:
+        area, full_field = FieldMapping[field].value[:2]
         info = getattr(self, f"{area}_info")
         if field == "BMD":
             date = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
@@ -225,10 +337,66 @@ class FRU:
                 self.common_header[i + 2] = len(new_data) // 8
                 new_data.extend(area_data)
 
-        struct.pack_into("BBBBBB", new_data, 0, *self.common_header)
+        struct.pack_into("BBBBBBBB", new_data, 0, *self.common_header)
         new_data[7] = self.calculate_checksum(new_data[:7])
         self.raw_data = new_data
         return True
+
+    def export_excel(self, filename: Path) -> None:
+        try:
+            import xlsxwriter
+        except ImportError:
+            logger.error("xlsxwriter module is not installed.")
+            sys.exit(1)
+
+        self.parse_bin(None, detailed=True)
+
+        # Create a new workbook and select the active worksheet
+        workbook = xlsxwriter.Workbook(str(filename))
+        worksheet = workbook.add_worksheet("FRU Data")
+
+        header_format = workbook.add_format(
+            {
+                "font_name": "Arial",
+                "font_size": 12,
+                "bold": True,
+                "border": 1,
+                "align": "center",
+                "valign": "vcenter",
+                "text_wrap": True,
+            }
+        )
+        cell_format = workbook.add_format(
+            {
+                "font_name": "Consolas",
+                "font_size": 12,
+                "border": 1,
+                "valign": "vcenter",
+                "text_wrap": True,
+            }
+        )
+
+        # Set column widths
+        worksheet.set_column("A:A", 15)  # Offset column
+        worksheet.set_column("B:B", 40)  # Value column
+        worksheet.set_column("C:C", 50)  # Description column
+        CHARS_PER_LINE = 32
+
+        # Write data to worksheet
+        for row_idx, row_data in enumerate(self.detail_data):
+            # Apply row height based on content of value column
+            if row_idx > 0 and len(row_data) > 1 and row_data[1]:
+                line_count = (len(row_data[1]) + CHARS_PER_LINE - 1) // CHARS_PER_LINE
+                if line_count > 1:
+                    worksheet.set_row(row_idx, 15 * line_count)
+
+            for col_idx, cell_value in enumerate(row_data):
+                if row_idx == 0:  # Header row
+                    worksheet.write(row_idx, col_idx, cell_value, header_format)
+                else:
+                    worksheet.write(row_idx, col_idx, cell_value, cell_format)
+
+        workbook.close()
 
 
 class FRUEncoder(json.JSONEncoder):
@@ -240,8 +408,8 @@ class FRUEncoder(json.JSONEncoder):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="FRU Data Parser and Modifier",
-        usage="python3 %(prog)s fru_file [-h] [-v] [-m] [field options]",
+        description="FRU Data Parser, Modifier, and Formatter",
+        usage="python3 %(prog)s fru_file [-h] [-v] [-m] [-f OUTPUT_FILE] [field options]",
     )
 
     parser.add_argument("fru_file", type=Path, help="path to the FRU file")
@@ -249,17 +417,25 @@ def main():
         "-v", "--version", action="version", version=f"fruid-util {__version__}"
     )
     parser.add_argument("-m", "--modify", action="store_true", help="modify fields")
+    parser.add_argument(
+        "-f",
+        "--format",
+        type=Path,
+        metavar="",
+        help="output in Excel xlsx format to specified file",
+    )
 
     field_opt = parser.add_argument_group("field options")
     for field in FieldMapping:
         field_opt.add_argument(f"--{field.name}", help=f"modify {field.value[1]}")
+        field_opt.add_argument(f"--{field.name}-raw", help=argparse.SUPPRESS)
 
     args = parser.parse_args()
 
     fru = FRU()
     if args.modify and not args.fru_file.exists():
         print(f"FRU file {args.fru_file} does not exist. Creating a new file.")
-        fru.common_header = [0x01, 0x00, 0x00, 0x00, 0x00, 0x00]
+        fru.common_header = [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
     else:
         fru.parse_bin(args.fru_file)
 
@@ -269,6 +445,13 @@ def main():
             value = getattr(args, field.name)
             if value is not None:
                 fru.modify_field(field.name, value)
+                modified = True
+                continue
+
+            value = getattr(args, f"{field.name}_raw")
+            if value is not None:
+                byte_value = bytes(int(x, 16) for x in value.split())
+                fru.modify_field(field.name, byte_value)
                 modified = True
 
         if modified:
@@ -283,10 +466,15 @@ def main():
 
             fru.write_bin(args.fru_file)
             print(f"FRU data has been updated and written to {args.fru_file}.")
-            return 0
         else:
             logger.warning("No modifications specified.")
-            return 0
+
+    if args.format:
+        fru.export_excel(args.format)
+        print(f"Excel data written to {args.format}")
+
+    if args.format or args.modify:
+        return 0
 
     print(
         json.dumps(
